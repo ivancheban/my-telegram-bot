@@ -29,48 +29,41 @@ exports.handler = async (event) => {
     }
 
     let videoUrl = '';
-    let platform = '';
-
+    
     for (const url of urls) {
         if (url.includes('instagram.com')) {
             const cleanUrl = url.split('?')[0];
             videoUrl = cleanUrl.replace('instagram.com', 'ddinstagram.com');
-            platform = 'Instagram';
             break;
         }
-        // You can add Facebook/other handlers here if needed
     }
 
     if (videoUrl) {
-      // --- THE GUARANTEED METHOD: SEND AS A VIDEO FILE ---
-      // We use the `sendVideo` endpoint instead of `sendMessage`
+      console.log('Attempting to send video from URL:', videoUrl); // Log the URL we're trying
+
       const telegramApiUrl = `https://api.telegram.org/bot${BOT_TOKEN}/sendVideo`;
       
-      await fetch(telegramApiUrl, {
+      // --- CAPTURE THE RESPONSE FROM TELEGRAM ---
+      const response = await fetch(telegramApiUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           chat_id: chatId,
-          // We tell Telegram the URL of the video, and it will download and send it.
           video: videoUrl,
-          caption: `Source: ${platform}`,
-          // Reply to the original user's message
           reply_to_message_id: message.message_id
         }),
       });
+
+      // --- LOG THE RESPONSE BODY ---
+      // This is the most important part. We will see what Telegram says.
+      const telegramResult = await response.json();
+      console.log('Telegram API Response:', JSON.stringify(telegramResult));
     }
 
     return { statusCode: 200, body: 'OK: Processed' };
 
   } catch (error) {
-    console.error('Error processing update:', error);
-    // On error, let's send a message back so the user knows something went wrong.
-    const chatId = JSON.parse(event.body).message.chat.id;
-    await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chat_id: chatId, text: "Sorry, I couldn't fetch that video." })
-    });
-    return { statusCode: 200, body: 'OK: Error reported' };
+    console.error('ERROR in function execution:', error);
+    return { statusCode: 200, body: 'OK: Error processing' };
   }
 };
