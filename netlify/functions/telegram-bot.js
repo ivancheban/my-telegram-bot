@@ -1,8 +1,8 @@
-const fetch = require('node-fetch');
-const FormData = require('form-data');
-const { createFFmpeg, fetchFile } = require('@ffmpeg/ffmpeg');
+import fetch from 'node-fetch';
+import FormData from 'form-data';
+import { createFFmpeg, fetchFile } from '@ffmpeg/ffmpeg';
 
-exports.handler = async (event) => {
+export const handler = async (event) => {
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, body: 'Method Not Allowed' };
   }
@@ -27,8 +27,6 @@ exports.handler = async (event) => {
     const text = message.text;
     const chatId = message.chat.id;
     
-    // --- THE FIX: REWRITING THE REGULAR EXPRESSION ---
-    // This is a more robust way to define the regex to avoid parsing errors.
     const urlRegex = new RegExp('https?://[^\\s]+', 'g');
     const urls = text.match(urlRegex);
 
@@ -55,13 +53,12 @@ exports.handler = async (event) => {
       const videoBuffer = await videoResponse.buffer();
       console.log('Step 2: Download complete. Initial size:', videoBuffer.length);
 
-      console.log('Step 3: Initializing FFmpeg to fix video metadata...');
-      const ffmpeg = createFFmpeg({ log: false }); // Set log to false for cleaner output
+      console.log('Step 3: Initializing FFmpeg...');
+      const ffmpeg = createFFmpeg({ log: false });
       await ffmpeg.load();
       
       ffmpeg.FS('writeFile', 'input.mp4', await fetchFile(videoBuffer));
 
-      // This command copies the video stream and moves the 'moov atom' to the front.
       await ffmpeg.run('-i', 'input.mp4', '-c', 'copy', '-movflags', 'faststart', 'output.mp4');
 
       const fixedVideoData = ffmpeg.FS('readFile', 'output.mp4');
