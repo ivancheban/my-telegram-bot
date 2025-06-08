@@ -1,4 +1,5 @@
 const fetch = require('node-fetch');
+const FormData = require('form-data'); // The new helper library
 
 exports.handler = async (event) => {
   if (event.httpMethod !== 'POST') {
@@ -28,39 +29,51 @@ exports.handler = async (event) => {
       return { statusCode: 200, body: 'OK: No URLs found' };
     }
 
-    let videoUrl = '';
+    let fixerUrl = '';
     
     for (const url of urls) {
         if (url.includes('instagram.com')) {
             const cleanUrl = url.split('?')[0];
-            // --- THE FINAL CHANGE: USE A MORE RELIABLE SERVICE ---
-            videoUrl = cleanUrl.replace('instagram.com', 'vxtwitter.com');
+            // We'll stick with vxtwitter as our source
+            fixerUrl = cleanUrl.replace('instagram.com', 'vxtwitter.com');
             break;
         }
     }
 
-    if (videoUrl) {
+    if (fixerUrl) {
+      // --- THE ULTIMATE FIX: DOWNLOAD-THEN-UPLOAD ---
+
+      // 1. Our function downloads the video from the fixer service.
+      console.log('Step 1: Downloading video from', fixerUrl);
+      const videoResponse = await fetch(fixerUrl);
+      if (!videoResponse.ok) {
+        throw new Error(`Failed to download video from fixer. Status: ${videoResponse.statusText}`);
+      }
+      const videoBuffer = await videoResponse.buffer();
+      console.log('Step 2: Download complete. Video size:', videoBuffer.length, 'bytes');
+
+      // 2. We prepare the video file to be uploaded to Telegram.
+      const form = new FormData();
+      form.append('chat_id', chatId);
+      form.append('reply_to_message_id', message.message_id);
+      form.append('video', videoBuffer, { filename: 'video.mp4' }); // Attach the downloaded data as a file
+
+      // 3. We upload the file directly to Telegram.
       const telegramApiUrl = `https://api.telegram.org/bot${BOT_TOKEN}/sendVideo`;
-      
-      const response = await fetch(telegramApiUrl, {
+      console.log('Step 3: Uploading video to Telegram...');
+      const uploadResponse = await fetch(telegramApiUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chat_id: chatId,
-          video: videoUrl,
-          reply_to_message_id: message.message_id
-        }),
+        body: form // Let node-fetch handle the 'multipart/form-data' headers
       });
 
-      // We can keep this logging to see if it works
-      const telegramResult = await response.json();
-      console.log(`Using vxtwitter.com. Telegram API Response:`, JSON.stringify(telegramResult));
+      const telegramResult = await uploadResponse.json();
+      console.log('Step 4: Upload complete. Telegram API Response:', JSON.stringify(telegramResult));
     }
 
     return { statusCode: 200, body: 'OK: Processed' };
 
   } catch (error) {
-    console.error('ERROR in function execution:', error);
+    console.error('CRITICAL ERROR:', error);
     return { statusCode: 200, body: 'OK: Error processing' };
   }
 };
