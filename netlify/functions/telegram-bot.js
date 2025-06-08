@@ -1,8 +1,8 @@
-import fetch from 'node-fetch';
-import FormData from 'form-data';
-import { createFFmpeg, fetchFile } from '@ffmpeg/ffmpeg';
+const fetch = require('node-fetch');
+const FormData = require('form-data');
+// We cannot require @ffmpeg/ffmpeg at the top level
 
-export const handler = async (event) => {
+exports.handler = async (event) => {
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, body: 'Method Not Allowed' };
   }
@@ -45,6 +45,9 @@ export const handler = async (event) => {
     }
 
     if (fixerUrl) {
+      // --- DYNAMICALLY IMPORTING THE ES MODULE ---
+      const { createFFmpeg, fetchFile } = await import('@ffmpeg/ffmpeg');
+
       console.log('Step 1: Downloading video from', fixerUrl);
       const videoResponse = await fetch(fixerUrl);
       if (!videoResponse.ok) {
