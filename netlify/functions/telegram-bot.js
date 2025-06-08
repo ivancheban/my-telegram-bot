@@ -33,17 +33,15 @@ exports.handler = async (event) => {
     for (const url of urls) {
         if (url.includes('instagram.com')) {
             const cleanUrl = url.split('?')[0];
-            videoUrl = cleanUrl.replace('instagram.com', 'ddinstagram.com');
+            // --- THE FINAL CHANGE: USE A MORE RELIABLE SERVICE ---
+            videoUrl = cleanUrl.replace('instagram.com', 'vxtwitter.com');
             break;
         }
     }
 
     if (videoUrl) {
-      console.log('Attempting to send video from URL:', videoUrl); // Log the URL we're trying
-
       const telegramApiUrl = `https://api.telegram.org/bot${BOT_TOKEN}/sendVideo`;
       
-      // --- CAPTURE THE RESPONSE FROM TELEGRAM ---
       const response = await fetch(telegramApiUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -54,10 +52,9 @@ exports.handler = async (event) => {
         }),
       });
 
-      // --- LOG THE RESPONSE BODY ---
-      // This is the most important part. We will see what Telegram says.
+      // We can keep this logging to see if it works
       const telegramResult = await response.json();
-      console.log('Telegram API Response:', JSON.stringify(telegramResult));
+      console.log(`Using vxtwitter.com. Telegram API Response:`, JSON.stringify(telegramResult));
     }
 
     return { statusCode: 200, body: 'OK: Processed' };
