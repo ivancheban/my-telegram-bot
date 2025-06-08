@@ -29,18 +29,21 @@ exports.handler = async (event) => {
     }
 
     let videoUrl = '';
+    let platform = '';
 
     for (const url of urls) {
         if (url.includes('instagram.com')) {
             const cleanUrl = url.split('?')[0];
             videoUrl = cleanUrl.replace('instagram.com', 'ddinstagram.com');
+            platform = 'Instagram';
             break;
         }
-        // You can add a Facebook handler here too if you want
+        // You can add Facebook/other handlers here if needed
     }
 
     if (videoUrl) {
-      // Use the sendVideo endpoint for maximum reliability
+      // --- THE GUARANTEED METHOD: SEND AS A VIDEO FILE ---
+      // We use the `sendVideo` endpoint instead of `sendMessage`
       const telegramApiUrl = `https://api.telegram.org/bot${BOT_TOKEN}/sendVideo`;
       
       await fetch(telegramApiUrl, {
@@ -48,31 +51,26 @@ exports.handler = async (event) => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           chat_id: chatId,
-          // Tell Telegram to download and send the video from this URL
+          // We tell Telegram the URL of the video, and it will download and send it.
           video: videoUrl,
-          // Optionally, reply to the user who sent the link
+          caption: `Source: ${platform}`,
+          // Reply to the original user's message
           reply_to_message_id: message.message_id
         }),
       });
-
-      // After sending the video, we can optionally delete the original user's message
-      // to keep the chat clean. Uncomment the block below to enable this.
-      /*
-      await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/deleteMessage`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-              chat_id: chatId,
-              message_id: message.message_id
-          })
-      });
-      */
     }
 
     return { statusCode: 200, body: 'OK: Processed' };
 
   } catch (error) {
     console.error('Error processing update:', error);
-    return { statusCode: 200, body: 'OK: Error processing' };
+    // On error, let's send a message back so the user knows something went wrong.
+    const chatId = JSON.parse(event.body).message.chat.id;
+    await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chat_id: chatId, text: "Sorry, I couldn't fetch that video." })
+    });
+    return { statusCode: 200, body: 'OK: Error reported' };
   }
 };
