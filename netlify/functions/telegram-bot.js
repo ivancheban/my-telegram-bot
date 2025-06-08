@@ -28,38 +28,45 @@ exports.handler = async (event) => {
       return { statusCode: 200, body: 'OK: No URLs found' };
     }
 
-    let replyText = '';
+    let videoUrl = '';
 
     for (const url of urls) {
-      const urlObject = new URL(url);
-      if (urlObject.hostname.includes('instagram.com')) {
-        const cleanUrl = url.split('?')[0];
-        replyText = cleanUrl.replace('instagram.com', 'ddinstagram.com');
-        break;
-      } else if (urlObject.hostname.includes('facebook.com') || urlObject.hostname.includes('fb.watch')) {
-        const cleanUrl = url.split('?')[0];
-        replyText = cleanUrl.replace(/facebook\.com|fb\.watch/, 'fxtwitter.com'); // fxtwitter also handles facebook
-        break;
-      }
+        if (url.includes('instagram.com')) {
+            const cleanUrl = url.split('?')[0];
+            videoUrl = cleanUrl.replace('instagram.com', 'ddinstagram.com');
+            break;
+        }
+        // You can add a Facebook handler here too if you want
     }
 
-    if (replyText) {
-      const telegramApiUrl = `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`;
+    if (videoUrl) {
+      // Use the sendVideo endpoint for maximum reliability
+      const telegramApiUrl = `https://api.telegram.org/bot${BOT_TOKEN}/sendVideo`;
+      
       await fetch(telegramApiUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           chat_id: chatId,
-          text: replyText,
-          // --- THE ULTIMATE PREVIEW FIX ---
-          // This is a more modern and powerful way to control previews
-          link_preview_options: {
-            is_disabled: false,
-            url: replyText, // Explicitly tell Telegram which link to preview
-            prefer_large_media: true // Make the video thumbnail big
-          }
+          // Tell Telegram to download and send the video from this URL
+          video: videoUrl,
+          // Optionally, reply to the user who sent the link
+          reply_to_message_id: message.message_id
         }),
       });
+
+      // After sending the video, we can optionally delete the original user's message
+      // to keep the chat clean. Uncomment the block below to enable this.
+      /*
+      await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/deleteMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+              chat_id: chatId,
+              message_id: message.message_id
+          })
+      });
+      */
     }
 
     return { statusCode: 200, body: 'OK: Processed' };
