@@ -28,34 +28,36 @@ exports.handler = async (event) => {
       return { statusCode: 200, body: 'OK: No URLs found' };
     }
 
-    let videoUrl = '';
-    let platform = '';
+    let replyText = '';
 
     for (const url of urls) {
-        if (url.includes('instagram.com')) {
-            const cleanUrl = url.split('?')[0];
-            videoUrl = cleanUrl.replace('instagram.com', 'ddinstagram.com');
-            platform = 'Instagram';
-            break;
-        }
-        // You can add Facebook/other handlers here if needed
+      const urlObject = new URL(url);
+      if (urlObject.hostname.includes('instagram.com')) {
+        const cleanUrl = url.split('?')[0];
+        replyText = cleanUrl.replace('instagram.com', 'ddinstagram.com');
+        break;
+      } else if (urlObject.hostname.includes('facebook.com') || urlObject.hostname.includes('fb.watch')) {
+        const cleanUrl = url.split('?')[0];
+        replyText = cleanUrl.replace(/facebook\.com|fb\.watch/, 'fxtwitter.com'); // fxtwitter also handles facebook
+        break;
+      }
     }
 
-    if (videoUrl) {
-      // --- THE GUARANTEED METHOD: SEND AS A VIDEO FILE ---
-      // We use the `sendVideo` endpoint instead of `sendMessage`
-      const telegramApiUrl = `https://api.telegram.org/bot${BOT_TOKEN}/sendVideo`;
-      
+    if (replyText) {
+      const telegramApiUrl = `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`;
       await fetch(telegramApiUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           chat_id: chatId,
-          // We tell Telegram the URL of the video, and it will download and send it.
-          video: videoUrl,
-          caption: `Source: ${platform}`,
-          // Reply to the original user's message
-          reply_to_message_id: message.message_id
+          text: replyText,
+          // --- THE ULTIMATE PREVIEW FIX ---
+          // This is a more modern and powerful way to control previews
+          link_preview_options: {
+            is_disabled: false,
+            url: replyText, // Explicitly tell Telegram which link to preview
+            prefer_large_media: true // Make the video thumbnail big
+          }
         }),
       });
     }
@@ -64,13 +66,6 @@ exports.handler = async (event) => {
 
   } catch (error) {
     console.error('Error processing update:', error);
-    // On error, let's send a message back so the user knows something went wrong.
-    const chatId = JSON.parse(event.body).message.chat.id;
-    await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chat_id: chatId, text: "Sorry, I couldn't fetch that video." })
-    });
-    return { statusCode: 200, body: 'OK: Error reported' };
+    return { statusCode: 200, body: 'OK: Error processing' };
   }
 };
