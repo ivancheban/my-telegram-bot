@@ -1,6 +1,5 @@
 const fetch = require('node-fetch');
 const FormData = require('form-data');
-// Import the new FFmpeg libraries
 const { createFFmpeg, fetchFile } = require('@ffmpeg/ffmpeg');
 
 exports.handler = async (event) => {
@@ -27,7 +26,10 @@ exports.handler = async (event) => {
 
     const text = message.text;
     const chatId = message.chat.id;
-    const urlRegex = /https?/\/\/[^\s]+/g;
+    
+    // --- THE FIX: REWRITING THE REGULAR EXPRESSION ---
+    // This is a more robust way to define the regex to avoid parsing errors.
+    const urlRegex = new RegExp('https?://[^\\s]+', 'g');
     const urls = text.match(urlRegex);
 
     if (!urls) {
@@ -53,25 +55,20 @@ exports.handler = async (event) => {
       const videoBuffer = await videoResponse.buffer();
       console.log('Step 2: Download complete. Initial size:', videoBuffer.length);
 
-      // --- Step 3: FIX THE VIDEO METADATA WITH FFMPEG ---
       console.log('Step 3: Initializing FFmpeg to fix video metadata...');
-      const ffmpeg = createFFmpeg({ log: true });
+      const ffmpeg = createFFmpeg({ log: false }); // Set log to false for cleaner output
       await ffmpeg.load();
       
-      console.log('Step 3a: Writing video to FFmpeg memory...');
       ffmpeg.FS('writeFile', 'input.mp4', await fetchFile(videoBuffer));
 
-      console.log('Step 3b: Running FFmpeg command to fix moov atom...');
-      // This command copies the video without re-encoding and moves the metadata to the front.
+      // This command copies the video stream and moves the 'moov atom' to the front.
       await ffmpeg.run('-i', 'input.mp4', '-c', 'copy', '-movflags', 'faststart', 'output.mp4');
 
-      console.log('Step 3c: Reading fixed video from FFmpeg memory...');
       const fixedVideoData = ffmpeg.FS('readFile', 'output.mp4');
       console.log('Step 3d: FFmpeg processing complete. Fixed size:', fixedVideoData.length);
       
-      await ffmpeg.exit(); // Clean up FFmpeg instance
+      await ffmpeg.exit();
 
-      // --- Step 4: UPLOAD THE FIXED VIDEO ---
       const form = new FormData();
       form.append('chat_id', chatId);
       form.append('reply_to_message_id', message.message_id);
