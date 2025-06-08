@@ -7,9 +7,7 @@ exports.handler = async (event) => {
 
   try {
     const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-    if (!BOT_TOKEN) {
-      throw new Error("Telegram Bot Token not found.");
-    }
+    if (!BOT_TOKEN) throw new Error("Telegram Bot Token not found.");
 
     const update = JSON.parse(event.body);
     if (!update.message || !update.message.text) {
@@ -17,9 +15,6 @@ exports.handler = async (event) => {
     }
 
     const message = update.message;
-
-    // --- FIX #1: PREVENT INFINITE LOOPS ---
-    // If the message is from any bot, ignore it completely.
     if (message.from && message.from.is_bot) {
       return { statusCode: 200, body: 'OK: Ignored bot message' };
     }
@@ -33,37 +28,34 @@ exports.handler = async (event) => {
       return { statusCode: 200, body: 'OK: No URLs found' };
     }
 
-    let replyText = '';
+    let videoUrl = '';
+    let platform = '';
 
     for (const url of urls) {
-      const urlObject = new URL(url);
-
-      if (urlObject.hostname.includes('instagram.com')) {
-        const cleanUrl = url.split('?')[0];
-        const fixedUrl = cleanUrl.replace('instagram.com', 'ddinstagram.com');
-        
-        // --- FIX #2: FORCE PREVIEW WITH CACHE BUSTER ---
-        // Appending a unique timestamp forces Telegram to re-fetch the preview.
-        replyText = `${fixedUrl}?v=${Date.now()}`;
-        break; 
-      } else if (urlObject.hostname.includes('facebook.com') || urlObject.hostname.includes('fb.watch')) {
-        const cleanUrl = url.split('?')[0];
-        // Bonus: Use a service that also works for Facebook for better results
-        const fixedUrl = cleanUrl.replace('facebook.com', 'fixupx.com').replace('fb.watch', 'fixupx.com');
-        replyText = fixedUrl;
-        break;
-      }
+        if (url.includes('instagram.com')) {
+            const cleanUrl = url.split('?')[0];
+            videoUrl = cleanUrl.replace('instagram.com', 'ddinstagram.com');
+            platform = 'Instagram';
+            break;
+        }
+        // You can add Facebook/other handlers here if needed
     }
 
-    if (replyText) {
-      const telegramApiUrl = `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`;
+    if (videoUrl) {
+      // --- THE GUARANTEED METHOD: SEND AS A VIDEO FILE ---
+      // We use the `sendVideo` endpoint instead of `sendMessage`
+      const telegramApiUrl = `https://api.telegram.org/bot${BOT_TOKEN}/sendVideo`;
+      
       await fetch(telegramApiUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           chat_id: chatId,
-          text: replyText,
-          disable_web_page_preview: false 
+          // We tell Telegram the URL of the video, and it will download and send it.
+          video: videoUrl,
+          caption: `Source: ${platform}`,
+          // Reply to the original user's message
+          reply_to_message_id: message.message_id
         }),
       });
     }
@@ -72,6 +64,13 @@ exports.handler = async (event) => {
 
   } catch (error) {
     console.error('Error processing update:', error);
-    return { statusCode: 200, body: 'OK: Error processing' };
+    // On error, let's send a message back so the user knows something went wrong.
+    const chatId = JSON.parse(event.body).message.chat.id;
+    await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chat_id: chatId, text: "Sorry, I couldn't fetch that video." })
+    });
+    return { statusCode: 200, body: 'OK: Error reported' };
   }
 };
