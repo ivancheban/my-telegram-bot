@@ -17,6 +17,13 @@ exports.handler = async (event) => {
     }
 
     const message = update.message;
+
+    // --- FIX #1: PREVENT INFINITE LOOPS ---
+    // If the message is from any bot, ignore it completely.
+    if (message.from && message.from.is_bot) {
+      return { statusCode: 200, body: 'OK: Ignored bot message' };
+    }
+
     const text = message.text;
     const chatId = message.chat.id;
     const urlRegex = /https?:\/\/[^\s]+/g;
@@ -29,18 +36,21 @@ exports.handler = async (event) => {
     let replyText = '';
 
     for (const url of urls) {
-      // Create a URL object to easily access parts of the URL
       const urlObject = new URL(url);
 
       if (urlObject.hostname.includes('instagram.com')) {
-        // --- IMPROVEMENT #1: Clean the URL ---
-        // Get the URL without any tracking parameters (like ?igsh=...)
         const cleanUrl = url.split('?')[0];
-        replyText = cleanUrl.replace('instagram.com', 'ddinstagram.com');
+        const fixedUrl = cleanUrl.replace('instagram.com', 'ddinstagram.com');
+        
+        // --- FIX #2: FORCE PREVIEW WITH CACHE BUSTER ---
+        // Appending a unique timestamp forces Telegram to re-fetch the preview.
+        replyText = `${fixedUrl}?v=${Date.now()}`;
         break; 
       } else if (urlObject.hostname.includes('facebook.com') || urlObject.hostname.includes('fb.watch')) {
         const cleanUrl = url.split('?')[0];
-        replyText = cleanUrl; // For FB, we just send the cleaned link
+        // Bonus: Use a service that also works for Facebook for better results
+        const fixedUrl = cleanUrl.replace('facebook.com', 'fixupx.com').replace('fb.watch', 'fixupx.com');
+        replyText = fixedUrl;
         break;
       }
     }
@@ -53,8 +63,6 @@ exports.handler = async (event) => {
         body: JSON.stringify({
           chat_id: chatId,
           text: replyText,
-          // --- IMPROVEMENT #2: Explicitly enable the preview ---
-          // This tells Telegram to always try and generate a preview for the link
           disable_web_page_preview: false 
         }),
       });
