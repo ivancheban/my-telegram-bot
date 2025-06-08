@@ -1,5 +1,4 @@
 const fetch = require('node-fetch');
-const FormData = require('form-data');
 
 exports.handler = async (event) => {
   if (event.httpMethod !== 'POST') {
@@ -33,62 +32,57 @@ exports.handler = async (event) => {
       return { statusCode: 200, body: 'OK: No URLs found' };
     }
 
-    let fixerUrl = '';
+    let instagramUrl = '';
     
     for (const url of urls) {
       if (url.includes('instagram.com')) {
-        const cleanUrl = url.split('?')[0];
-        fixerUrl = cleanUrl.replace('instagram.com', 'ddinstagram.com');
+        instagramUrl = url;
         break;
       }
     }
 
-    if (fixerUrl) {
-      // --- THE "NAKED" IMPORT STRATEGY ---
-      const ffmpegModule = await import('@ffmpeg/ffmpeg');
-      // Find the createFFmpeg function, whether it's on .default or the root object
-      const createFFmpeg = ffmpegModule.createFFmpeg || ffmpegModule.default.createFFmpeg;
-      const fetchFile = ffmpegModule.fetchFile || ffmpegModule.default.fetchFile;
+    if (instagramUrl) {
+      // --- THE NEW STRATEGY: USE COBALT.TOOLS API ---
+      console.log('Step 1: Calling cobalt.tools API for URL:', instagramUrl);
       
-      if (typeof createFFmpeg !== 'function') {
-          throw new Error("Could not find createFFmpeg function in the imported module.");
-      }
-
-      console.log('Step 1: Downloading video from', fixerUrl);
-      const videoResponse = await fetch(fixerUrl);
-      if (!videoResponse.ok) {
-        throw new Error(`Failed to download video. Status: ${videoResponse.statusText}`);
-      }
-      const videoBuffer = await videoResponse.buffer();
-      console.log('Step 2: Download complete. Initial size:', videoBuffer.length);
-
-      console.log('Step 3: Initializing FFmpeg...');
-      const ffmpeg = createFFmpeg({ log: false });
-      await ffmpeg.load();
-      
-      ffmpeg.FS('writeFile', 'input.mp4', await fetchFile(videoBuffer));
-
-      await ffmpeg.run('-i', 'input.mp4', '-c', 'copy', '-movflags', 'faststart', 'output.mp4');
-
-      const fixedVideoData = ffmpeg.FS('readFile', 'output.mp4');
-      console.log('Step 3d: FFmpeg processing complete. Fixed size:', fixedVideoData.length);
-      
-      await ffmpeg.exit();
-
-      const form = new FormData();
-      form.append('chat_id', chatId);
-      form.append('reply_to_message_id', message.message_id);
-      form.append('video', fixedVideoData, { filename: 'instagram_video.mp4' });
-
-      console.log('Step 4: Uploading FIXED video to Telegram...');
-      const telegramApiUrl = `https://api.telegram.org/bot${BOT_TOKEN}/sendVideo`;
-      const uploadResponse = await fetch(telegramApiUrl, {
-        method: 'POST',
-        body: form
+      const cobaltResponse = await fetch('https://co.wuk.sh/api/json', {
+          method: 'POST',
+          headers: {
+              'Accept': 'application/json',
+              'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+              url: instagramUrl,
+              vQuality: '720', // Request a 720p version, which is universally compatible
+              isNoTTWatermark: true
+          })
       });
 
+      const cobaltResult = await cobaltResponse.json();
+      console.log('Step 2: Cobalt API response:', JSON.stringify(cobaltResult));
+
+      if (cobaltResult.status !== 'stream') {
+        throw new Error(`Cobalt API failed with status: ${cobaltResult.status}. Text: ${cobaltResult.text}`);
+      }
+
+      // The direct, compatible video URL
+      const directVideoUrl = cobaltResult.url;
+
+      // --- Step 3: Send the compatible video URL to Telegram ---
+      console.log('Step 3: Sending direct video URL to Telegram:', directVideoUrl);
+      const telegramApiUrl = `https://api.telegram.org/bot${BOT_TOKEN}/sendVideo`;
+      const uploadResponse = await fetch(telegramApiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+              chat_id: chatId,
+              video: directVideoUrl, // Telegram will download this compatible video
+              reply_to_message_id: message.message_id
+          })
+      });
+      
       const telegramResult = await uploadResponse.json();
-      console.log('Step 5: Upload complete. Final Telegram Response:', JSON.stringify(telegramResult));
+      console.log('Step 4: Telegram upload response:', JSON.stringify(telegramResult));
     }
 
     return { statusCode: 200, body: 'OK: Processed' };
@@ -99,7 +93,7 @@ exports.handler = async (event) => {
     await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chat_id: chatId, text: "Sorry, a critical error occurred while processing the video." })
+        body: JSON.stringify({ chat_id: chatId, text: "Sorry, I couldn't process that video." })
     });
     return { statusCode: 200, body: 'OK: Error handled' };
   }
