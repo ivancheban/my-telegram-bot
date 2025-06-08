@@ -45,8 +45,8 @@ exports.handler = async (event) => {
     }
 
     if (fixerUrl) {
-      // --- DYNAMICALLY IMPORTING THE ES MODULE ---
-      const { createFFmpeg, fetchFile } = await import('@ffmpeg/ffmpeg');
+      // --- THE FIX: ADD .default TO THE DYNAMIC IMPORT ---
+      const { createFFmpeg, fetchFile } = (await import('@ffmpeg/ffmpeg')).default;
 
       console.log('Step 1: Downloading video from', fixerUrl);
       const videoResponse = await fetch(fixerUrl);
