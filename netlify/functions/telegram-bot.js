@@ -1,6 +1,5 @@
 const fetch = require('node-fetch');
 const FormData = require('form-data');
-// We cannot require @ffmpeg/ffmpeg at the top level
 
 exports.handler = async (event) => {
   if (event.httpMethod !== 'POST') {
@@ -45,8 +44,15 @@ exports.handler = async (event) => {
     }
 
     if (fixerUrl) {
-      // --- THE FIX: ADD .default TO THE DYNAMIC IMPORT ---
-      const { createFFmpeg, fetchFile } = (await import('@ffmpeg/ffmpeg')).default;
+      // --- THE "NAKED" IMPORT STRATEGY ---
+      const ffmpegModule = await import('@ffmpeg/ffmpeg');
+      // Find the createFFmpeg function, whether it's on .default or the root object
+      const createFFmpeg = ffmpegModule.createFFmpeg || ffmpegModule.default.createFFmpeg;
+      const fetchFile = ffmpegModule.fetchFile || ffmpegModule.default.fetchFile;
+      
+      if (typeof createFFmpeg !== 'function') {
+          throw new Error("Could not find createFFmpeg function in the imported module.");
+      }
 
       console.log('Step 1: Downloading video from', fixerUrl);
       const videoResponse = await fetch(fixerUrl);
