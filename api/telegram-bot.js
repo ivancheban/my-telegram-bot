@@ -1,4 +1,7 @@
 const fetch = require('node-fetch');
+const FormData = require('form-data');
+// --- THE FINAL FIX: Require the CommonJS-compatible build of the library ---
+const { createFFmpeg, fetchFile } = require('@ffmpeg/ffmpeg/dist/ffmpeg.cjs');
 
 module.exports = async (request, response) => {
   const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
@@ -18,67 +21,39 @@ module.exports = async (request, response) => {
     if (!match) return response.status(200).send('OK');
 
     const instagramUrl = match[0];
+    const cleanUrl = instagramUrl.split('?')[0];
+    const fixerUrl = cleanUrl.replace('instagram.com', 'ddinstagram.com');
 
-    // Step 1: Start the download job, acting like a browser
-    console.log('Step 1: Starting download job on loader.to');
-    const startResponse = await fetch(`https://loader.to/api/button/?url=${instagramUrl}&f=mp4`, {
-        // --- THE FIX: ADD A USER-AGENT HEADER ---
-        headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/111.0.0.0 Safari/537.36'
-        }
-    });
-    const startResult = await startResponse.json();
+    // Step 1: Download video
+    const videoResponse = await fetch(fixerUrl);
+    if (!videoResponse.ok) throw new Error(`Download failed`);
+    const videoBuffer = await videoResponse.buffer();
+
+    // Step 2: Fix video with FFmpeg
+    const ffmpeg = createFFmpeg({ log: true });
+    await ffmpeg.load();
+    ffmpeg.FS('writeFile', 'input.mp4', await fetchFile(videoBuffer));
+    await ffmpeg.run('-i', 'input.mp4', '-c', 'copy', '-movflags', 'faststart', 'output.mp4');
+    const fixedVideoData = ffmpeg.FS('readFile', 'output.mp4');
+    await ffmpeg.exit();
     
-    if (!startResult.success || !startResult.id) {
-        throw new Error(`loader.to failed to start job. Info: ${startResult.info}`);
-    }
-    const jobId = startResult.id;
-    console.log('Step 2: Job started with ID:', jobId);
-
-    // Step 2: Poll for the result
-    let directVideoUrl = '';
-    let attempts = 0;
-    while (attempts < 10) {
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        
-        console.log(`Step 3 (Attempt ${attempts + 1}): Checking job status...`);
-        const statusResponse = await fetch(`https://loader.to/api/ajax/download/?id=${jobId}`);
-        const statusResult = await statusResponse.json();
-
-        if (statusResult.success === 1) {
-            directVideoUrl = statusResult.download_url;
-            console.log('Step 4: Job complete! Got direct URL:', directVideoUrl);
-            break;
-        } else if (statusResult.success !== 0 || statusResult.text !== 'downloading') {
-            throw new Error(`loader.to job failed with status: ${statusResult.text}`);
-        }
-        attempts++;
-    }
-
-    if (!directVideoUrl) {
-        throw new Error('loader.to job timed out.');
-    }
-
-    // Step 5: Send the direct video link to Telegram
-    await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendVideo`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            chat_id: chatId,
-            video: directVideoUrl,
-            reply_to_message_id: message.message_id
-        })
-    });
+    // Step 3: Upload fixed video
+    const form = new FormData();
+    form.append('chat_id', chatId);
+    form.append('video', fixedVideoData, { filename: 'video.mp4' });
+    form.append('reply_to_message_id', message.message_id);
+    
+    const telegramApiUrl = `https://api.telegram.org/bot${BOT_TOKEN}/sendVideo`;
+    await fetch(telegramApiUrl, { method: 'POST', body: form });
     
     response.status(200).send('OK: Processed');
-
   } catch (error) {
     console.error('CRITICAL ERROR:', error);
-    const chatId = request.body.message.chat.id;
+    const chatId = request.body.message.chatt.id;
     await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: chatId, text: "Sorry, I couldn't process that video." })
+      body: JSON.stringify({ chat_id: chatId, text: "Sorry, a video processing error occurred." })
     });
     response.status(200).send('OK: Error Handled');
   }
