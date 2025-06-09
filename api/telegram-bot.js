@@ -1,6 +1,5 @@
 const fetch = require('node-fetch');
 const FormData = require('form-data');
-const { createFFmpeg, fetchFile } = require('@ffmpeg/ffmpeg'); // Standard require works in Render
 
 module.exports = async (request, response) => {
   const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
@@ -22,6 +21,9 @@ module.exports = async (request, response) => {
     const instagramUrl = match[0];
     const cleanUrl = instagramUrl.split('?')[0];
     const fixerUrl = cleanUrl.replace('instagram.com', 'ddinstagram.com');
+
+    // --- The Final Fix: Use dynamic import() for the ES Module ---
+    const { createFFmpeg, fetchFile } = await import('@ffmpeg/ffmpeg');
 
     // Step 1: Download video
     const videoResponse = await fetch(fixerUrl);
