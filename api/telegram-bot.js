@@ -19,12 +19,14 @@ module.exports = async (request, response) => {
 
     const instagramUrl = match[0];
 
-    // --- FINAL STRATEGY: Use the loader.to API ---
-    // This API works in two steps: start a job, then get the result.
-
-    // Step 1: Start the download job on loader.to
+    // Step 1: Start the download job, acting like a browser
     console.log('Step 1: Starting download job on loader.to');
-    const startResponse = await fetch(`https://loader.to/api/button/?url=${instagramUrl}&f=mp4`);
+    const startResponse = await fetch(`https://loader.to/api/button/?url=${instagramUrl}&f=mp4`, {
+        // --- THE FIX: ADD A USER-AGENT HEADER ---
+        headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/111.0.0.0 Safari/537.36'
+        }
+    });
     const startResult = await startResponse.json();
     
     if (!startResult.success || !startResult.id) {
@@ -33,23 +35,21 @@ module.exports = async (request, response) => {
     const jobId = startResult.id;
     console.log('Step 2: Job started with ID:', jobId);
 
-    // Step 2: Poll for the result until it's ready
+    // Step 2: Poll for the result
     let directVideoUrl = '';
     let attempts = 0;
-    while (attempts < 10) { // Try for a maximum of 10 times (20 seconds)
-        await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds
+    while (attempts < 10) {
+        await new Promise(resolve => setTimeout(resolve, 2000));
         
         console.log(`Step 3 (Attempt ${attempts + 1}): Checking job status...`);
         const statusResponse = await fetch(`https://loader.to/api/ajax/download/?id=${jobId}`);
         const statusResult = await statusResponse.json();
 
-        if (statusResult.success === 1) { // 1 means success
+        if (statusResult.success === 1) {
             directVideoUrl = statusResult.download_url;
             console.log('Step 4: Job complete! Got direct URL:', directVideoUrl);
             break;
-        } else if (statusResult.success === 0 && statusResult.text === 'downloading') {
-            console.log('Still downloading...');
-        } else {
+        } else if (statusResult.success !== 0 || statusResult.text !== 'downloading') {
             throw new Error(`loader.to job failed with status: ${statusResult.text}`);
         }
         attempts++;
