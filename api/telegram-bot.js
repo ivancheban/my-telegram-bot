@@ -20,7 +20,6 @@ module.exports = async (request, response) => {
 
     const instagramUrl = match[0];
     const cleanUrl = instagramUrl.split('?')[0];
-    const fixerUrl = cleanUrl.replace('instagram.com', 'ddinstagram.com');
 
     // Step 1: Send "Processing..." message
     const processingMessage = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
@@ -33,39 +32,47 @@ module.exports = async (request, response) => {
       })
     });
 
-    // Step 2: Download video with improved headers
-    let videoResponse = await fetch(fixerUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-        'Accept': '*/*',
-        'Accept-Encoding': 'gzip, deflate, br',
-        'Connection': 'keep-alive',
-        'Referer': 'https://www.instagram.com/'
-      }
-    });
-    
-    // Try alternative URL if first attempt fails
-    if (!videoResponse.ok) {
-      const alternativeUrl = cleanUrl.replace('instagram.com', 'instagram.cdnist.com');
-      videoResponse = await fetch(alternativeUrl, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-          'Accept': '*/*',
-          'Accept-Encoding': 'gzip, deflate, br',
-          'Connection': 'keep-alive',
-          'Referer': 'https://www.instagram.com/'
+    // Step 2: Try multiple proxy services
+    const proxyUrls = [
+      cleanUrl.replace('instagram.com', 'ddinstagram.com'),
+      cleanUrl.replace('instagram.com', 'instagram.cdnist.com'),
+      cleanUrl.replace('instagram.com', 'insta.download'),
+      cleanUrl.replace('instagram.com', 'igram.live')
+    ];
+
+    let videoResponse = null;
+    let successfulProxy = '';
+
+    for (const proxyUrl of proxyUrls) {
+      try {
+        console.log(`Trying proxy: ${proxyUrl}`);
+        videoResponse = await fetch(proxyUrl, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'Accept': 'video/mp4,video/webm,video/*;q=0.9',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Connection': 'keep-alive',
+            'Referer': 'https://www.instagram.com/'
+          },
+          timeout: 15000
+        });
+
+        const contentType = videoResponse.headers.get('content-type');
+        if (videoResponse.ok && contentType && contentType.includes('video')) {
+          successfulProxy = proxyUrl;
+          break;
         }
-      });
+      } catch (proxyError) {
+        console.log(`Proxy ${proxyUrl} failed:`, proxyError.message);
+        continue;
+      }
     }
 
-    if (!videoResponse.ok) throw new Error(`Download failed: ${videoResponse.status}`);
-
-    // Verify content type
-    const contentType = videoResponse.headers.get('content-type');
-    if (!contentType || !contentType.includes('video')) {
-      throw new Error('Invalid content type received: ' + contentType);
+    if (!successfulProxy) {
+      throw new Error('No working proxy found for video download');
     }
 
+    console.log(`Successfully found video using proxy: ${successfulProxy}`);
     const videoBuffer = await videoResponse.buffer();
 
     // Verify buffer size
@@ -88,7 +95,7 @@ module.exports = async (request, response) => {
     const uploadResponse = await fetch(telegramApiUrl, {
       method: 'POST',
       body: form,
-      timeout: 60000 // 60 second timeout
+      timeout: 60000
     });
 
     if (!uploadResponse.ok) {
