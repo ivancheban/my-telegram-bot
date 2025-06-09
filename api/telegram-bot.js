@@ -1,5 +1,4 @@
 const fetch = require('node-fetch');
-const FormData = require('form-data');
 
 module.exports = async (request, response) => {
   if (request.method !== 'POST') {
@@ -34,38 +33,43 @@ module.exports = async (request, response) => {
     }
 
     const instagramUrl = match[0];
-    const cleanUrl = instagramUrl.split('?')[0];
-    const fixerUrl = cleanUrl.replace('instagram.com', 'ddinstagram.com');
 
-    // --- The "Naked" Import to find the function wherever it is ---
-    const ffmpegModule = await import('@ffmpeg/ffmpeg');
-    const createFFmpeg = ffmpegModule.createFFmpeg || ffmpegModule.default.createFFmpeg;
-    const fetchFile = ffmpegModule.fetchFile || ffmpegModule.default.fetchFile;
+    // --- STRATEGY: Use the Cobalt API to get a direct, compatible video link ---
+    console.log('Step 1: Calling cobalt.tools API for URL:', instagramUrl);
+    
+    const cobaltResponse = await fetch('https://co.wuk.sh/api/json', {
+        method: 'POST',
+        headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ url: instagramUrl })
+    });
 
-    if (typeof createFFmpeg !== 'function') {
-      throw new Error("Could not locate createFFmpeg function in the imported module.");
+    const cobaltResult = await cobaltResponse.json();
+    console.log('Step 2: Cobalt API response:', JSON.stringify(cobaltResult));
+
+    if (cobaltResult.status !== 'stream' || !cobaltResult.url) {
+      throw new Error(`Cobalt API failed. Status: ${cobaltResult.status || 'unknown'}. Text: ${cobaltResult.text || 'N/A'}`);
     }
 
-    // 1. Download the video
-    const videoResponse = await fetch(fixerUrl);
-    if (!videoResponse.ok) throw new Error(`Failed to download from ddinstagram.`);
-    const videoBuffer = await videoResponse.buffer();
+    const directVideoUrl = cobaltResult.url;
 
-    // 2. Fix the video metadata
-    const ffmpeg = createFFmpeg({ log: false });
-    await ffmpeg.load();
-    ffmpeg.FS('writeFile', 'input.mp4', await fetchFile(videoBuffer));
-    await ffmpeg.run('-i', 'input.mp4', '-c', 'copy', '-movflags', 'faststart', 'output.mp4');
-    const fixedVideoData = ffmpeg.FS('readFile', 'output.mp4');
-    await ffmpeg.exit();
-    
-    // 3. Upload the fixed video
-    const form = new FormData();
-    form.append('chat_id', chatId);
-    form.append('video', fixedVideoData, { filename: 'video.mp4' });
-    
+    // --- Step 3: Tell Telegram to send the video from Cobalt's direct link ---
+    console.log('Step 3: Sending direct video URL to Telegram:', directVideoUrl);
     const telegramApiUrl = `https://api.telegram.org/bot${BOT_TOKEN}/sendVideo`;
-    await fetch(telegramApiUrl, { method: 'POST', body: form });
+    const uploadResponse = await fetch(telegramApiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            chat_id: chatId,
+            video: directVideoUrl,
+            reply_to_message_id: message.message_id
+        })
+    });
+    
+    const telegramResult = await uploadResponse.json();
+    console.log('Step 4: Telegram upload response:', JSON.stringify(telegramResult));
 
     response.status(200).send('OK: Processed');
 
