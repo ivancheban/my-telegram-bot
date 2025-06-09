@@ -22,28 +22,24 @@ module.exports = async (request, response) => {
     const cleanUrl = instagramUrl.split('?')[0];
     const fixerUrl = cleanUrl.replace('instagram.com', 'ddinstagram.com');
 
-    // --- The one strategy we know works on Render's network ---
-    console.log('Step 1: Downloading video from ddinstagram');
+    // Step 1: Download video
     const videoResponse = await fetch(fixerUrl);
     if (!videoResponse.ok) throw new Error(`Download failed`);
     const videoBuffer = await videoResponse.buffer();
-    console.log('Step 2: Download complete.');
 
-    // Step 3: Upload the video file directly
+    // Step 2: Upload the video file directly
     const form = new FormData();
     form.append('chat_id', chatId);
     form.append('video', videoBuffer, { filename: 'video.mp4' });
     form.append('reply_to_message_id', message.message_id);
-    // --- THE FINAL TRICK: Add supports_streaming ---
-    // This tells Telegram that the file might need special handling.
-    form.append('supports_streaming', true);
+    // --- THE FIX: Convert boolean to string ---
+    form.append('supports_streaming', 'true');
     
-    console.log('Step 3: Uploading video to Telegram...');
     const telegramApiUrl = `https://api.telegram.org/bot${BOT_TOKEN}/sendVideo`;
     const uploadResponse = await fetch(telegramApiUrl, { method: 'POST', body: form });
     
     const telegramResult = await uploadResponse.json();
-    console.log('Step 4: Upload complete. Response:', JSON.stringify(telegramResult));
+    console.log('Upload complete. Response:', JSON.stringify(telegramResult));
     
     response.status(200).send('OK: Processed');
   } catch (error) {
