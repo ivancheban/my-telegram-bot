@@ -1,12 +1,14 @@
 {
   "name": "render-telegram-bot",
   "version": "1.0.0",
+  "description": "A Telegram bot to fix Instagram video previews, deployed on Render.",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
     "express": "^4.19.2",
-    "node-fetch": "^2.6.7"
+    "node-fetch": "^2.6.7",
+    "form-data": "^4.0.0"
   }
 }

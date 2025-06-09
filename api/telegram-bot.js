@@ -1,9 +1,7 @@
-// api/telegram-bot.js
 const fetch = require('node-fetch');
+const FormData = require('form-data'); // <-- We need this again
 
-// Change the export to be a function that Express can call
 module.exports = async (request, response) => {
-  // The rest of the cobalt.tools code is IDENTICAL
   const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
   if (!BOT_TOKEN) {
     return response.status(500).send('Bot token not configured');
@@ -29,28 +27,29 @@ module.exports = async (request, response) => {
     }
 
     const instagramUrl = match[0];
-    
-    const cobaltResponse = await fetch('https://co.wuk.sh/api/json', {
-        method: 'POST',
-        headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: instagramUrl })
-    });
-    const cobaltResult = await cobaltResponse.json();
-    if (cobaltResult.status !== 'stream' || !cobaltResult.url) {
-      throw new Error(`Cobalt API failed: ${cobaltResult.text}`);
-    }
+    const cleanUrl = instagramUrl.split('?')[0];
+    const fixerUrl = cleanUrl.replace('instagram.com', 'ddinstagram.com');
 
-    const directVideoUrl = cobaltResult.url;
+    // --- The Definitive "Download, then Upload" Strategy ---
+    console.log('Step 1: Downloading video from', fixerUrl);
+    const videoResponse = await fetch(fixerUrl);
+    if (!videoResponse.ok) {
+      throw new Error(`Failed to download video. Status: ${videoResponse.statusText}`);
+    }
+    const videoBuffer = await videoResponse.buffer();
+    console.log('Step 2: Download complete. Size:', videoBuffer.length, 'bytes');
+
+    const form = new FormData();
+    form.append('chat_id', chatId);
+    form.append('video', videoBuffer, { filename: 'video.mp4' });
+    form.append('reply_to_message_id', message.message_id);
+
+    console.log('Step 3: Uploading video to Telegram...');
+    const telegramApiUrl = `https://api.telegram.org/bot${BOT_TOKEN}/sendVideo`;
+    const uploadResponse = await fetch(telegramApiUrl, { method: 'POST', body: form });
     
-    await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendVideo`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            chat_id: chatId,
-            video: directVideoUrl,
-            reply_to_message_id: message.message_id
-        })
-    });
+    const telegramResult = await uploadResponse.json();
+    console.log('Step 4: Upload complete. Telegram Response:', JSON.stringify(telegramResult));
     
     response.status(200).send('OK: Processed');
   } catch (error) {
