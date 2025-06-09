@@ -1,7 +1,5 @@
 const fetch = require('node-fetch');
 const FormData = require('form-data');
-// --- THE FINAL FIX: Require the CommonJS-compatible build of the library ---
-const { createFFmpeg, fetchFile } = require('@ffmpeg/ffmpeg/dist/ffmpeg.cjs');
 
 module.exports = async (request, response) => {
   const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
@@ -23,6 +21,11 @@ module.exports = async (request, response) => {
     const instagramUrl = match[0];
     const cleanUrl = instagramUrl.split('?')[0];
     const fixerUrl = cleanUrl.replace('instagram.com', 'ddinstagram.com');
+
+    // --- The FINAL Import Method: Dynamic Import ---
+    const ffmpegModule = await import('@ffmpeg/ffmpeg');
+    const createFFmpeg = ffmpegModule.createFFmpeg;
+    const fetchFile = ffmpegModule.fetchFile;
 
     // Step 1: Download video
     const videoResponse = await fetch(fixerUrl);
@@ -49,7 +52,7 @@ module.exports = async (request, response) => {
     response.status(200).send('OK: Processed');
   } catch (error) {
     console.error('CRITICAL ERROR:', error);
-    const chatId = request.body.message.chatt.id;
+    const chatId = request.body.message.chat.id;
     await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
