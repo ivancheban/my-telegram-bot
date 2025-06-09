@@ -1,6 +1,5 @@
 const fetch = require('node-fetch');
 const FormData = require('form-data');
-// We will import ffmpeg dynamically to ensure compatibility
 
 module.exports = async (request, response) => {
   if (request.method !== 'POST') {
@@ -38,15 +37,21 @@ module.exports = async (request, response) => {
     const cleanUrl = instagramUrl.split('?')[0];
     const fixerUrl = cleanUrl.replace('instagram.com', 'ddinstagram.com');
 
-    // --- The Definitive "Download, Fix, Upload" Strategy ---
-    const { createFFmpeg, fetchFile } = (await import('@ffmpeg/ffmpeg')).default;
-    
-    // 1. Your function downloads the video
+    // --- The "Naked" Import to find the function wherever it is ---
+    const ffmpegModule = await import('@ffmpeg/ffmpeg');
+    const createFFmpeg = ffmpegModule.createFFmpeg || ffmpegModule.default.createFFmpeg;
+    const fetchFile = ffmpegModule.fetchFile || ffmpegModule.default.fetchFile;
+
+    if (typeof createFFmpeg !== 'function') {
+      throw new Error("Could not locate createFFmpeg function in the imported module.");
+    }
+
+    // 1. Download the video
     const videoResponse = await fetch(fixerUrl);
     if (!videoResponse.ok) throw new Error(`Failed to download from ddinstagram.`);
     const videoBuffer = await videoResponse.buffer();
 
-    // 2. Your function fixes the video metadata using FFmpeg
+    // 2. Fix the video metadata
     const ffmpeg = createFFmpeg({ log: false });
     await ffmpeg.load();
     ffmpeg.FS('writeFile', 'input.mp4', await fetchFile(videoBuffer));
@@ -54,7 +59,7 @@ module.exports = async (request, response) => {
     const fixedVideoData = ffmpeg.FS('readFile', 'output.mp4');
     await ffmpeg.exit();
     
-    // 3. Your function uploads the fixed video file to Telegram
+    // 3. Upload the fixed video
     const form = new FormData();
     form.append('chat_id', chatId);
     form.append('video', fixedVideoData, { filename: 'video.mp4' });
@@ -66,7 +71,6 @@ module.exports = async (request, response) => {
 
   } catch (error) {
     console.error('CRITICAL ERROR:', error);
-    // Notify the user in chat that something went wrong
     const chatId = request.body.message.chat.id;
     await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
       method: 'POST',
