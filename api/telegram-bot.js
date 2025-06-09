@@ -33,34 +33,68 @@ module.exports = async (request, response) => {
       })
     });
 
-    // Step 2: Download video with proper headers
-    const videoResponse = await fetch(fixerUrl, {
+    // Step 2: Download video with improved headers
+    let videoResponse = await fetch(fixerUrl, {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        'Accept': '*/*',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Connection': 'keep-alive',
+        'Referer': 'https://www.instagram.com/'
       }
     });
     
+    // Try alternative URL if first attempt fails
+    if (!videoResponse.ok) {
+      const alternativeUrl = cleanUrl.replace('instagram.com', 'instagram.cdnist.com');
+      videoResponse = await fetch(alternativeUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+          'Accept': '*/*',
+          'Accept-Encoding': 'gzip, deflate, br',
+          'Connection': 'keep-alive',
+          'Referer': 'https://www.instagram.com/'
+        }
+      });
+    }
+
     if (!videoResponse.ok) throw new Error(`Download failed: ${videoResponse.status}`);
+
+    // Verify content type
+    const contentType = videoResponse.headers.get('content-type');
+    if (!contentType || !contentType.includes('video')) {
+      throw new Error('Invalid content type received: ' + contentType);
+    }
+
     const videoBuffer = await videoResponse.buffer();
+
+    // Verify buffer size
+    if (videoBuffer.length < 10000) {
+      throw new Error('Downloaded content is too small to be a valid video');
+    }
 
     // Step 3: Upload video with improved parameters
     const form = new FormData();
     form.append('chat_id', chatId);
     form.append('video', videoBuffer, {
-      filename: 'video.mp4',
+      filename: 'instagram_video.mp4',
       contentType: 'video/mp4'
     });
     form.append('reply_to_message_id', message.message_id);
     form.append('supports_streaming', 'true');
-    form.append('width', '1280'); // Standard HD width
-    form.append('height', '720');  // Standard HD height
     form.append('caption', '✅ Downloaded from Instagram');
     
     const telegramApiUrl = `https://api.telegram.org/bot${BOT_TOKEN}/sendVideo`;
     const uploadResponse = await fetch(telegramApiUrl, {
       method: 'POST',
-      body: form
+      body: form,
+      timeout: 60000 // 60 second timeout
     });
+
+    if (!uploadResponse.ok) {
+      const errorData = await uploadResponse.json();
+      throw new Error(`Telegram API error: ${JSON.stringify(errorData)}`);
+    }
     
     const telegramResult = await uploadResponse.json();
     console.log('Upload complete. Response:', JSON.stringify(telegramResult));
