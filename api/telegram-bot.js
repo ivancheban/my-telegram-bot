@@ -32,52 +32,91 @@ module.exports = async (request, response) => {
       })
     });
 
-    // Step 2: Try multiple proxy services
+    // Step 2: Try multiple proxy services with improved options
     const proxyUrls = [
       cleanUrl.replace('instagram.com', 'ddinstagram.com'),
-      cleanUrl.replace('instagram.com', 'instagram.cdnist.com'),
-      cleanUrl.replace('instagram.com', 'insta.download'),
-      cleanUrl.replace('instagram.com', 'igram.live')
+      cleanUrl.replace('instagram.com', 'imginn.org'),
+      cleanUrl.replace('instagram.com', 'instasupersave.com'),
+      cleanUrl.replace('www.', ''),
+      cleanUrl.replace('instagram.com', 'ddinstagram.com').replace('reel', 'reels'),
+      cleanUrl.replace('instagram.com', 'dumpor.com')
     ];
 
     let videoResponse = null;
     let successfulProxy = '';
+    let lastError = '';
 
     for (const proxyUrl of proxyUrls) {
       try {
         console.log(`Trying proxy: ${proxyUrl}`);
         videoResponse = await fetch(proxyUrl, {
           headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-            'Accept': 'video/mp4,video/webm,video/*;q=0.9',
+            'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0.3 Mobile/15E148 Safari/604.1',
+            'Accept': '*/*',
+            'Accept-Language': 'en-US,en;q=0.9',
             'Accept-Encoding': 'gzip, deflate, br',
             'Connection': 'keep-alive',
-            'Referer': 'https://www.instagram.com/'
+            'Referer': 'https://www.instagram.com/',
+            'Cache-Control': 'no-cache',
+            'Pragma': 'no-cache',
+            'sec-fetch-dest': 'video',
+            'sec-fetch-mode': 'no-cors',
+            'sec-fetch-site': 'cross-site'
           },
-          timeout: 15000
+          timeout: 30000,
+          follow: 5
         });
 
         const contentType = videoResponse.headers.get('content-type');
-        if (videoResponse.ok && contentType && contentType.includes('video')) {
+        console.log(`Content-Type from ${proxyUrl}:`, contentType);
+
+        if (!videoResponse.ok) {
+          lastError = `HTTP ${videoResponse.status} from ${proxyUrl}`;
+          continue;
+        }
+
+        // Accept various valid content types
+        if (contentType && (
+          contentType.includes('video') || 
+          contentType.includes('octet-stream') || 
+          contentType.includes('application/binary')
+        )) {
           successfulProxy = proxyUrl;
           break;
+        } else {
+          lastError = `Invalid content type from ${proxyUrl}: ${contentType}`;
         }
+
+        // Try to read a small portion of the response to verify it's actually video data
+        const testBuffer = await videoResponse.buffer();
+        if (testBuffer.length > 50000) {
+          successfulProxy = proxyUrl;
+          videoResponse = await fetch(proxyUrl, { // Fetch again for full content
+            headers: { ...videoResponse.headers },
+            timeout: 60000,
+            follow: 5
+          });
+          break;
+        } else {
+          lastError = `Response too small from ${proxyUrl}: ${testBuffer.length} bytes`;
+        }
+
       } catch (proxyError) {
         console.log(`Proxy ${proxyUrl} failed:`, proxyError.message);
+        lastError = `${proxyUrl}: ${proxyError.message}`;
         continue;
       }
     }
 
     if (!successfulProxy) {
-      throw new Error('No working proxy found for video download');
+      throw new Error(`All proxies failed. Last error: ${lastError}`);
     }
 
     console.log(`Successfully found video using proxy: ${successfulProxy}`);
     const videoBuffer = await videoResponse.buffer();
 
-    // Verify buffer size
-    if (videoBuffer.length < 10000) {
-      throw new Error('Downloaded content is too small to be a valid video');
+    if (videoBuffer.length < 50000) {
+      throw new Error(`Downloaded content too small: ${videoBuffer.length} bytes`);
     }
 
     // Step 3: Upload video with improved parameters
