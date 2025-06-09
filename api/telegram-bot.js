@@ -1,51 +1,66 @@
 const fetch = require('node-fetch');
-const FormData = require('form-data');
 
 module.exports = async (request, response) => {
   const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-  if (!BOT_TOKEN) return response.status(500).send('Bot token not configured');
+  if (!BOT_TOKEN) {
+    return response.status(500).send('Bot token not configured');
+  }
 
   try {
     const update = request.body;
-    if (!update.message || !update.message.text) return response.status(200).send('OK');
+    if (!update.message || !update.message.text) {
+      return response.status(200).send('OK: Not a text message');
+    }
     const message = update.message;
-    if (message.from && message.from.is_bot) return response.status(200).send('OK');
+    if (message.from && message.from.is_bot) {
+      return response.status(200).send('OK: Ignored bot message');
+    }
 
     const text = message.text;
     const chatId = message.chat.id;
     
     const instagramRegex = /https?:\/\/(www\.)?instagram\.com\/[\w\-\.\/]+/;
     const match = text.match(instagramRegex);
-    if (!match) return response.status(200).send('OK');
+    if (!match) {
+      return response.status(200).send('OK: No Instagram URL found');
+    }
 
     const instagramUrl = match[0];
-    const cleanUrl = instagramUrl.split('?')[0];
-    const fixerUrl = cleanUrl.replace('instagram.com', 'ddinstagram.com');
 
-    // --- The Final Fix: Use dynamic import() for the ES Module ---
-    const { createFFmpeg, fetchFile } = await import('@ffmpeg/ffmpeg');
-
-    // Step 1: Download video
-    const videoResponse = await fetch(fixerUrl);
-    if (!videoResponse.ok) throw new Error(`Download failed`);
-    const videoBuffer = await videoResponse.buffer();
-
-    // Step 2: Fix video with FFmpeg
-    const ffmpeg = createFFmpeg({ log: true });
-    await ffmpeg.load();
-    ffmpeg.FS('writeFile', 'input.mp4', await fetchFile(videoBuffer));
-    await ffmpeg.run('-i', 'input.mp4', '-c', 'copy', '-movflags', 'faststart', 'output.mp4');
-    const fixedVideoData = ffmpeg.FS('readFile', 'output.mp4');
-    await ffmpeg.exit();
+    // --- THE FINAL STRATEGY: Use the Cobalt API ---
+    console.log('Step 1: Calling cobalt.tools API for URL:', instagramUrl);
     
-    // Step 3: Upload fixed video
-    const form = new FormData();
-    form.append('chat_id', chatId);
-    form.append('video', fixedVideoData, { filename: 'video.mp4' });
-    form.append('reply_to_message_id', message.message_id);
-    
+    const cobaltResponse = await fetch('https://co.wuk.sh/api/json', {
+        method: 'POST',
+        headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ url: instagramUrl })
+    });
+    const cobaltResult = await cobaltResponse.json();
+
+    if (cobaltResult.status !== 'stream' || !cobaltResult.url) {
+      throw new Error(`Cobalt API failed: ${cobaltResult.text || 'No URL returned'}`);
+    }
+
+    const directVideoUrl = cobaltResult.url;
+    console.log('Step 2: Got direct video URL:', directVideoUrl);
+
+    // --- Step 3: Tell Telegram to send the video from Cobalt's direct link ---
     const telegramApiUrl = `https://api.telegram.org/bot${BOT_TOKEN}/sendVideo`;
-    await fetch(telegramApiUrl, { method: 'POST', body: form });
+    const uploadResponse = await fetch(telegramApiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            chat_id: chatId,
+            video: directVideoUrl,
+            reply_to_message_id: message.message_id
+        })
+    });
+    
+    const telegramResult = await uploadResponse.json();
+    console.log('Step 4: Telegram upload response:', JSON.stringify(telegramResult));
     
     response.status(200).send('OK: Processed');
   } catch (error) {
@@ -54,7 +69,7 @@ module.exports = async (request, response) => {
     await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: chatId, text: "Sorry, a video processing error occurred." })
+      body: JSON.stringify({ chat_id: chatId, text: "Sorry, I couldn't process that video." })
     });
     response.status(200).send('OK: Error Handled');
   }
