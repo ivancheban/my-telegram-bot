@@ -34,73 +34,95 @@ module.exports = async (request, response) => {
 
     // Step 2: Try multiple proxy services with improved options
     const proxyUrls = [
+      `https://saveinsta.app/api/ajaxSearch?q=${encodeURIComponent(cleanUrl)}`,
       cleanUrl.replace('instagram.com', 'ddinstagram.com'),
-      cleanUrl.replace('instagram.com', 'imginn.org'),
-      cleanUrl.replace('instagram.com', 'instasupersave.com'),
+      cleanUrl.replace('instagram.com', 'instavideosave.net'),
       cleanUrl.replace('www.', ''),
-      cleanUrl.replace('instagram.com', 'ddinstagram.com').replace('reel', 'reels'),
-      cleanUrl.replace('instagram.com', 'dumpor.com')
+      cleanUrl.replace('instagram.com', 'ddinstagram.com').replace('reel', 'reels')
     ];
 
     let videoResponse = null;
     let successfulProxy = '';
     let lastError = '';
+    let videoBuffer = null;
 
     for (const proxyUrl of proxyUrls) {
       try {
         console.log(`Trying proxy: ${proxyUrl}`);
-        videoResponse = await fetch(proxyUrl, {
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0.3 Mobile/15E148 Safari/604.1',
-            'Accept': '*/*',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'Accept-Encoding': 'gzip, deflate, br',
-            'Connection': 'keep-alive',
-            'Referer': 'https://www.instagram.com/',
-            'Cache-Control': 'no-cache',
-            'Pragma': 'no-cache',
-            'sec-fetch-dest': 'video',
-            'sec-fetch-mode': 'no-cors',
-            'sec-fetch-site': 'cross-site'
-          },
-          timeout: 30000,
-          follow: 5
-        });
 
-        const contentType = videoResponse.headers.get('content-type');
-        console.log(`Content-Type from ${proxyUrl}:`, contentType);
+        if (proxyUrl.includes('saveinsta.app')) {
+          // Handle API-based proxy
+          const apiResponse = await fetch(proxyUrl, {
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+              'Accept': 'application/json',
+              'Origin': 'https://saveinsta.app',
+              'Referer': 'https://saveinsta.app/'
+            }
+          });
 
-        if (!videoResponse.ok) {
-          lastError = `HTTP ${videoResponse.status} from ${proxyUrl}`;
-          continue;
-        }
-
-        // Accept various valid content types
-        if (contentType && (
-          contentType.includes('video') || 
-          contentType.includes('octet-stream') || 
-          contentType.includes('application/binary')
-        )) {
-          successfulProxy = proxyUrl;
-          break;
+          if (apiResponse.ok) {
+            const jsonData = await apiResponse.json();
+            if (jsonData.url || (jsonData.links && jsonData.links.length > 0)) {
+              const videoUrl = jsonData.url || jsonData.links[0];
+              videoResponse = await fetch(videoUrl, {
+                headers: {
+                  'Accept': 'video/*, application/octet-stream'
+                },
+                timeout: 60000
+              });
+              videoBuffer = await videoResponse.buffer();
+              if (videoBuffer.length > 100000) {
+                successfulProxy = proxyUrl;
+                break;
+              }
+            }
+          }
         } else {
-          lastError = `Invalid content type from ${proxyUrl}: ${contentType}`;
-        }
-
-        // Try to read a small portion of the response to verify it's actually video data
-        const testBuffer = await videoResponse.buffer();
-        if (testBuffer.length > 50000) {
-          successfulProxy = proxyUrl;
-          videoResponse = await fetch(proxyUrl, { // Fetch again for full content
-            headers: { ...videoResponse.headers },
-            timeout: 60000,
+          // Handle direct proxy services
+          videoResponse = await fetch(proxyUrl, {
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_6 like Mac OS X) AppleWebKit/605.1.15',
+              'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,video/*;q=0.8',
+              'Accept-Language': 'en-US,en;q=0.9',
+              'Accept-Encoding': 'gzip, deflate, br',
+              'Connection': 'keep-alive',
+              'Referer': 'https://www.instagram.com/',
+              'sec-fetch-dest': 'video',
+              'sec-fetch-mode': 'no-cors',
+              'sec-fetch-site': 'cross-site'
+            },
+            timeout: 30000,
             follow: 5
           });
-          break;
-        } else {
-          lastError = `Response too small from ${proxyUrl}: ${testBuffer.length} bytes`;
-        }
 
+          const contentType = videoResponse.headers.get('content-type');
+          console.log(`Content-Type from ${proxyUrl}:`, contentType);
+
+          if (!videoResponse.ok) {
+            lastError = `HTTP ${videoResponse.status} from ${proxyUrl}`;
+            continue;
+          }
+
+          const responseText = await videoResponse.text();
+          const videoMatch = responseText.match(/video_url["':]+([^"']+)/i) ||
+                            responseText.match(/href=["']([^"']+\.mp4)/i);
+
+          if (videoMatch) {
+            const videoUrl = videoMatch[1];
+            videoResponse = await fetch(videoUrl, {
+              headers: {
+                'Accept': 'video/*, application/octet-stream'
+              },
+              timeout: 60000
+            });
+            videoBuffer = await videoResponse.buffer();
+            if (videoBuffer.length > 100000) {
+              successfulProxy = proxyUrl;
+              break;
+            }
+          }
+        }
       } catch (proxyError) {
         console.log(`Proxy ${proxyUrl} failed:`, proxyError.message);
         lastError = `${proxyUrl}: ${proxyError.message}`;
@@ -108,16 +130,11 @@ module.exports = async (request, response) => {
       }
     }
 
-    if (!successfulProxy) {
+    if (!successfulProxy || !videoBuffer) {
       throw new Error(`All proxies failed. Last error: ${lastError}`);
     }
 
     console.log(`Successfully found video using proxy: ${successfulProxy}`);
-    const videoBuffer = await videoResponse.buffer();
-
-    if (videoBuffer.length < 50000) {
-      throw new Error(`Downloaded content too small: ${videoBuffer.length} bytes`);
-    }
 
     // Step 3: Upload video with improved parameters
     const form = new FormData();
