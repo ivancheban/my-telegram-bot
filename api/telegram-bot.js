@@ -22,24 +22,61 @@ module.exports = async (request, response) => {
     const cleanUrl = instagramUrl.split('?')[0];
     const fixerUrl = cleanUrl.replace('instagram.com', 'ddinstagram.com');
 
-    // Step 1: Download video
-    const videoResponse = await fetch(fixerUrl);
-    if (!videoResponse.ok) throw new Error(`Download failed`);
+    // Step 1: Send "Processing..." message
+    const processingMessage = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text: "Processing your request...",
+        reply_to_message_id: message.message_id
+      })
+    });
+
+    // Step 2: Download video with proper headers
+    const videoResponse = await fetch(fixerUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+      }
+    });
+    
+    if (!videoResponse.ok) throw new Error(`Download failed: ${videoResponse.status}`);
     const videoBuffer = await videoResponse.buffer();
 
-    // Step 2: Upload the video file directly
+    // Step 3: Upload video with improved parameters
     const form = new FormData();
     form.append('chat_id', chatId);
-    form.append('video', videoBuffer, { filename: 'video.mp4' });
+    form.append('video', videoBuffer, {
+      filename: 'video.mp4',
+      contentType: 'video/mp4'
+    });
     form.append('reply_to_message_id', message.message_id);
-    // --- THE FIX: Convert boolean to string ---
     form.append('supports_streaming', 'true');
+    form.append('width', '1280'); // Standard HD width
+    form.append('height', '720');  // Standard HD height
+    form.append('caption', '✅ Downloaded from Instagram');
     
     const telegramApiUrl = `https://api.telegram.org/bot${BOT_TOKEN}/sendVideo`;
-    const uploadResponse = await fetch(telegramApiUrl, { method: 'POST', body: form });
+    const uploadResponse = await fetch(telegramApiUrl, {
+      method: 'POST',
+      body: form
+    });
     
     const telegramResult = await uploadResponse.json();
     console.log('Upload complete. Response:', JSON.stringify(telegramResult));
+
+    // Step 4: Delete the "Processing..." message
+    const processingMessageData = await processingMessage.json();
+    if (processingMessageData.ok) {
+      await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/deleteMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: chatId,
+          message_id: processingMessageData.result.message_id
+        })
+      });
+    }
     
     response.status(200).send('OK: Processed');
   } catch (error) {
@@ -48,7 +85,11 @@ module.exports = async (request, response) => {
     await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: chatId, text: "Sorry, I couldn't process that video." })
+      body: JSON.stringify({
+        chat_id: chatId,
+        text: "Sorry, I couldn't process that video. Error: " + error.message,
+        reply_to_message_id: request.body.message.message_id
+      })
     });
     response.status(200).send('OK: Error Handled');
   }
