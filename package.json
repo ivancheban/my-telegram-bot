@@ -7,6 +7,9 @@
   },
   "dependencies": {
     "express": "^4.19.2",
-    "node-fetch": "^2.6.7"
+    "node-fetch": "^2.6.7",
+    "form-data": "^4.0.0",
+    "@ffmpeg/ffmpeg": "^0.12.10",
+    "@ffmpeg/core": "^0.12.6"
   }
 }
