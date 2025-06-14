@@ -23,9 +23,8 @@ module.exports = async (request, response) => {
     const instagramUrl = match[0];
     const fixerUrl = instagramUrl.replace('instagram.com', YOUR_INSTAFIX_URL.replace('https://', ''));
 
-    // 1. Fetch from your InstaFix service, IGNORING THE PROXY
-    console.log('Fetching from my InstaFix service:', fixerUrl);
-    const fixerResponse = await axios.get(fixerUrl, { proxy: false }); // <-- FIX
+    // 1. Fetch from your InstaFix service
+    const fixerResponse = await axios.get(fixerUrl);
     const html = fixerResponse.data;
 
     // 2. Extract the direct video URL
@@ -34,31 +33,27 @@ module.exports = async (request, response) => {
       throw new Error("Could not find a video URL from the InstaFix service.");
     }
     const directVideoUrl = videoUrlMatch[1];
-    console.log('Found direct video URL:', directVideoUrl);
 
-    // 3. Send the video link to Telegram, IGNORING THE PROXY
+    // 3. Send the video link to Telegram
     await axios.post(
       `https://api.telegram.org/bot${BOT_TOKEN}/sendVideo`,
       {
         chat_id: chatId,
         video: directVideoUrl,
         reply_to_message_id: message.message_id
-      },
-      { proxy: false } // <-- FIX
+      }
     );
     
     response.status(200).send('OK: Processed');
   } catch (error) {
-    console.error('CRITICAL ERROR:', error);
+    console.error('CRITICAL ERROR:', error.message);
     const chatId = request.body.message.chat.id;
-    // Also ignore the proxy for the error message
     await axios.post(
       `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`,
       {
         chat_id: chatId,
-        text: "Sorry, an error occurred while processing the video."
-      },
-      { proxy: false } // <-- FIX
+        text: "Sorry, an error occurred."
+      }
     );
     response.status(200).send('OK: Error Handled');
   }
