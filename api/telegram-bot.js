@@ -1,6 +1,6 @@
 const fetch = require('node-fetch');
 const FormData = require('form-data');
-const { createFFmpeg, fetchFile } = require('@ffmpeg/ffmpeg');
+const { createFFmpeg, fetchFile } = require('@ffmpeg/ffmpeg/dist/ffmpeg.cjs');
 
 module.exports = async (request, response) => {
   const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
@@ -25,18 +25,28 @@ module.exports = async (request, response) => {
 
     // Step 1: Download video
     const videoResponse = await fetch(fixerUrl);
-    if (!videoResponse.ok) throw new Error(`Download from ddinstagram failed`);
+    if (!videoResponse.ok) throw new Error(`Download failed`);
     const videoBuffer = await videoResponse.buffer();
 
-    // Step 2: Fix video metadata with FFmpeg
-    const ffmpeg = createFFmpeg({ log: false });
+    // Step 2: Fix video with a full transcode using FFmpeg
+    const ffmpeg = createFFmpeg({ log: true });
     await ffmpeg.load();
     ffmpeg.FS('writeFile', 'input.mp4', await fetchFile(videoBuffer));
-    await ffmpeg.run('-i', 'input.mp4', '-c', 'copy', '-movflags', 'faststart', 'output.mp4');
+
+    // --- THE FINAL FIX: A more powerful FFmpeg command ---
+    // This fully re-encodes the video to ensure maximum compatibility.
+    await ffmpeg.run(
+        '-i', 'input.mp4',
+        '-c:v', 'libx264', // Video codec: H.264
+        '-c:a', 'aac',      // Audio codec: AAC
+        '-movflags', 'faststart',
+        'output.mp4'
+    );
+    
     const fixedVideoData = ffmpeg.FS('readFile', 'output.mp4');
     await ffmpeg.exit();
     
-    // Step 3: Upload the fixed video file to Telegram
+    // Step 3: Upload the fixed video file
     const form = new FormData();
     form.append('chat_id', chatId);
     form.append('video', fixedVideoData, { filename: 'video.mp4' });
