@@ -1,15 +1,13 @@
 {
-  "name": "final-working-telegram-bot",
+  "name": "final-telegram-bot-on-render",
   "version": "1.0.0",
+  "description": "A Telegram bot to fix Instagram video previews, deployed on Render using a Docker container.",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
     "express": "^4.19.2",
-    "node-fetch": "^2.6.7",
-    "form-data": "^4.0.0",
-    "@ffmpeg/ffmpeg": "^0.11.0",
-    "@ffmpeg/core": "^0.11.0"
+    "axios": "^1.7.2"
   }
 }

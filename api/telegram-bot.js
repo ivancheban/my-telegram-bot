@@ -1,9 +1,11 @@
-const fetch = require('node-fetch');
-const FormData = require('form-data');
-const { createFFmpeg, fetchFile } = require('@ffmpeg/ffmpeg/dist/ffmpeg.cjs');
+const express = require('express');
+const axios = require('axios');
+const https = require('https'); // We need the https library
 
 module.exports = async (request, response) => {
   const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+  const YOUR_INSTAFIX_URL = 'https://my-personal-instafix.onrender.com';
+
   if (!BOT_TOKEN) return response.status(500).send('Bot token not configured');
 
   try {
@@ -20,50 +22,47 @@ module.exports = async (request, response) => {
     if (!match) return response.status(200).send('OK');
 
     const instagramUrl = match[0];
-    const cleanUrl = instagramUrl.split('?')[0];
-    const fixerUrl = cleanUrl.replace('instagram.com', 'ddinstagram.com');
+    const fixerUrl = instagramUrl.replace('instagram.com', YOUR_INSTAFIX_URL.replace('https://', ''));
 
-    // Step 1: Download video
-    const videoResponse = await fetch(fixerUrl);
-    if (!videoResponse.ok) throw new Error(`Download failed`);
-    const videoBuffer = await videoResponse.buffer();
+    // --- THE FINAL FIX: Create an HTTPS agent that ignores SSL errors ---
+    const httpsAgent = new https.Agent({
+        rejectUnauthorized: false
+    });
 
-    // Step 2: Fix video with a full transcode using FFmpeg
-    const ffmpeg = createFFmpeg({ log: true });
-    await ffmpeg.load();
-    ffmpeg.FS('writeFile', 'input.mp4', await fetchFile(videoBuffer));
+    // 1. Fetch from your InstaFix service using the special agent
+    console.log('Fetching from my InstaFix service:', fixerUrl);
+    const fixerResponse = await axios.get(fixerUrl, { httpsAgent }); // <-- Pass the agent here
+    const html = fixerResponse.data;
 
-    // --- THE FINAL FIX: A more powerful FFmpeg command ---
-    // This fully re-encodes the video to ensure maximum compatibility.
-    await ffmpeg.run(
-        '-i', 'input.mp4',
-        '-c:v', 'libx264', // Video codec: H.264
-        '-c:a', 'aac',      // Audio codec: AAC
-        '-movflags', 'faststart',
-        'output.mp4'
+    // 2. Extract the direct video URL
+    const videoUrlMatch = html.match(/property="og:video" content="([^"]+)"/);
+    if (!videoUrlMatch || !videoUrlMatch[1]) {
+      throw new Error("Could not find a video URL from the InstaFix service.");
+    }
+    const directVideoUrl = videoUrlMatch[1];
+    console.log('Found direct video URL:', directVideoUrl);
+
+    // 3. Send the video link to Telegram (no special agent needed for this external call)
+    await axios.post(
+      `https://api.telegram.org/bot${BOT_TOKEN}/sendVideo`,
+      {
+        chat_id: chatId,
+        video: directVideoUrl,
+        reply_to_message_id: message.message_id
+      }
     );
-    
-    const fixedVideoData = ffmpeg.FS('readFile', 'output.mp4');
-    await ffmpeg.exit();
-    
-    // Step 3: Upload the fixed video file
-    const form = new FormData();
-    form.append('chat_id', chatId);
-    form.append('video', fixedVideoData, { filename: 'video.mp4' });
-    form.append('reply_to_message_id', message.message_id);
-    
-    const telegramApiUrl = `https://api.telegram.org/bot${BOT_TOKEN}/sendVideo`;
-    await fetch(telegramApiUrl, { method: 'POST', body: form });
     
     response.status(200).send('OK: Processed');
   } catch (error) {
-    console.error('CRITICAL ERROR:', error);
+    console.error('CRITICAL ERROR:', error.message);
     const chatId = request.body.message.chat.id;
-    await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: chatId, text: "Sorry, a video processing error occurred." })
-    });
+    await axios.post(
+      `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`,
+      {
+        chat_id: chatId,
+        text: "Sorry, an error occurred while processing the video."
+      }
+    );
     response.status(200).send('OK: Error Handled');
   }
 };
