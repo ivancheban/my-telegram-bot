@@ -33,12 +33,39 @@ module.exports = async (request, response) => {
     });
 
     // Step 2: Try multiple proxy services with improved options
-    const proxyUrls = [
-      `https://saveinsta.app/api/ajaxSearch?q=${encodeURIComponent(cleanUrl)}`,
-      cleanUrl.replace('instagram.com', 'ddinstagram.com'),
-      cleanUrl.replace('instagram.com', 'instavideosave.net'),
-      cleanUrl.replace('www.', ''),
-      cleanUrl.replace('instagram.com', 'ddinstagram.com').replace('reel', 'reels')
+    const proxyServices = [
+      {
+        url: `https://snapinsta.app/api/download?url=${encodeURIComponent(cleanUrl)}`,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          'Accept': 'application/json',
+          'Origin': 'https://snapinsta.app',
+          'Referer': 'https://snapinsta.app/'
+        },
+        type: 'api'
+      },
+      {
+        url: cleanUrl.replace('instagram.com', 'ddinstagram.com'),
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_6 like Mac OS X) AppleWebKit/605.1.15',
+          'Accept': 'text/html,application/xhtml+xml,video/*',
+          'Accept-Language': 'en-US,en;q=0.9',
+          'Accept-Encoding': 'gzip, deflate, br',
+          'Connection': 'keep-alive',
+          'Referer': 'https://www.instagram.com/'
+        },
+        type: 'direct'
+      },
+      {
+        url: `https://sssinstagram.com/api/convert?url=${encodeURIComponent(cleanUrl)}`,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          'Accept': 'application/json',
+          'Origin': 'https://sssinstagram.com',
+          'Referer': 'https://sssinstagram.com/'
+        },
+        type: 'api'
+      }
     ];
 
     let videoResponse = null;
@@ -46,92 +73,91 @@ module.exports = async (request, response) => {
     let lastError = '';
     let videoBuffer = null;
 
-    for (const proxyUrl of proxyUrls) {
+    for (const proxy of proxyServices) {
       try {
-        console.log(`Trying proxy: ${proxyUrl}`);
+        console.log(`Trying proxy: ${proxy.url}`);
 
-        if (proxyUrl.includes('saveinsta.app')) {
-          // Handle API-based proxy
-          const apiResponse = await fetch(proxyUrl, {
-            headers: {
-              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-              'Accept': 'application/json',
-              'Origin': 'https://saveinsta.app',
-              'Referer': 'https://saveinsta.app/'
-            }
+        if (proxy.type === 'api') {
+          const apiResponse = await fetch(proxy.url, {
+            headers: proxy.headers,
+            timeout: 30000
           });
 
-          if (apiResponse.ok) {
-            const jsonData = await apiResponse.json();
-            if (jsonData.url || (jsonData.links && jsonData.links.length > 0)) {
-              const videoUrl = jsonData.url || jsonData.links[0];
-              videoResponse = await fetch(videoUrl, {
-                headers: {
-                  'Accept': 'video/*, application/octet-stream'
-                },
-                timeout: 60000
-              });
+          if (!apiResponse.ok) {
+            lastError = `HTTP ${apiResponse.status} from ${proxy.url}`;
+            continue;
+          }
+
+          const jsonData = await apiResponse.json();
+          const videoUrl = jsonData.url || 
+                          (jsonData.links && jsonData.links[0]) || 
+                          (jsonData.data && jsonData.data.url);
+
+          if (videoUrl) {
+            videoResponse = await fetch(videoUrl, {
+              headers: {
+                'Accept': 'video/*, application/octet-stream',
+                'User-Agent': proxy.headers['User-Agent']
+              },
+              timeout: 60000
+            });
+          }
+        } else {
+          videoResponse = await fetch(proxy.url, {
+            headers: proxy.headers,
+            timeout: 30000,
+            follow: 5
+          });
+        }
+
+        if (!videoResponse || !videoResponse.ok) {
+          lastError = `Failed to fetch video from ${proxy.url}`;
+          continue;
+        }
+
+        const contentType = videoResponse.headers.get('content-type');
+        console.log(`Content-Type from ${proxy.url}:`, contentType);
+
+        if (contentType && (contentType.includes('video') || contentType.includes('octet-stream'))) {
+          videoBuffer = await videoResponse.buffer();
+          if (videoBuffer.length > 100000) {
+            successfulProxy = proxy.url;
+            break;
+          }
+        } else if (proxy.type === 'direct') {
+          const responseText = await videoResponse.text();
+          const videoMatch = responseText.match(/video_url["':]+([^"']+)/i) ||
+                            responseText.match(/href=["']([^"']+\.mp4)/i) ||
+                            responseText.match(/source\s+src=["']([^"']+)/i);
+
+          if (videoMatch) {
+            const videoUrl = videoMatch[1].replace(/&amp;/g, '&');
+            videoResponse = await fetch(videoUrl, {
+              headers: {
+                'Accept': 'video/*, application/octet-stream',
+                'User-Agent': proxy.headers['User-Agent']
+              },
+              timeout: 60000
+            });
+
+            if (videoResponse.ok) {
               videoBuffer = await videoResponse.buffer();
               if (videoBuffer.length > 100000) {
-                successfulProxy = proxyUrl;
+                successfulProxy = proxy.url;
                 break;
               }
             }
           }
-        } else {
-          // Handle direct proxy services
-          videoResponse = await fetch(proxyUrl, {
-            headers: {
-              'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_6 like Mac OS X) AppleWebKit/605.1.15',
-              'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,video/*;q=0.8',
-              'Accept-Language': 'en-US,en;q=0.9',
-              'Accept-Encoding': 'gzip, deflate, br',
-              'Connection': 'keep-alive',
-              'Referer': 'https://www.instagram.com/',
-              'sec-fetch-dest': 'video',
-              'sec-fetch-mode': 'no-cors',
-              'sec-fetch-site': 'cross-site'
-            },
-            timeout: 30000,
-            follow: 5
-          });
-
-          const contentType = videoResponse.headers.get('content-type');
-          console.log(`Content-Type from ${proxyUrl}:`, contentType);
-
-          if (!videoResponse.ok) {
-            lastError = `HTTP ${videoResponse.status} from ${proxyUrl}`;
-            continue;
-          }
-
-          const responseText = await videoResponse.text();
-          const videoMatch = responseText.match(/video_url["':]+([^"']+)/i) ||
-                            responseText.match(/href=["']([^"']+\.mp4)/i);
-
-          if (videoMatch) {
-            const videoUrl = videoMatch[1];
-            videoResponse = await fetch(videoUrl, {
-              headers: {
-                'Accept': 'video/*, application/octet-stream'
-              },
-              timeout: 60000
-            });
-            videoBuffer = await videoResponse.buffer();
-            if (videoBuffer.length > 100000) {
-              successfulProxy = proxyUrl;
-              break;
-            }
-          }
         }
       } catch (proxyError) {
-        console.log(`Proxy ${proxyUrl} failed:`, proxyError.message);
-        lastError = `${proxyUrl}: ${proxyError.message}`;
+        console.log(`Proxy ${proxy.url} failed:`, proxyError.message);
+        lastError = `${proxy.url}: ${proxyError.message}`;
         continue;
       }
     }
 
     if (!successfulProxy || !videoBuffer) {
-      throw new Error(`All proxies failed. Last error: ${lastError}`);
+      throw new Error(`Video download failed. Last error: ${lastError}`);
     }
 
     console.log(`Successfully found video using proxy: ${successfulProxy}`);
@@ -145,6 +171,8 @@ module.exports = async (request, response) => {
     });
     form.append('reply_to_message_id', message.message_id);
     form.append('supports_streaming', 'true');
+    form.append('width', '1280');  // Add default HD resolution
+    form.append('height', '720');
     form.append('caption', '✅ Downloaded from Instagram');
     
     const telegramApiUrl = `https://api.telegram.org/bot${BOT_TOKEN}/sendVideo`;
