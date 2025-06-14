@@ -4,8 +4,8 @@ module.exports = {
         maxRetries: 3,
         services: [
             {
-                name: 'rapidsave',
-                url: 'https://rapidsave.com/api/download',
+                name: 'instagram-api',
+                url: 'https://instagram-api.vercel.app/api/download',
                 method: 'POST',
                 headers: {
                     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
@@ -20,7 +20,8 @@ module.exports = {
                 headers: {
                     'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_6 like Mac OS X) AppleWebKit/605.1.15',
                     'Accept': 'text/html,application/xhtml+xml,video/*'
-                }
+                },
+                parseVideo: true
             }
         ]
     }
