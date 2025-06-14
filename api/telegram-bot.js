@@ -58,6 +58,12 @@ module.exports = async (request, response) => {
                         timeout: config.proxy.timeout
                     });
 
+                    const contentType = response.headers.get('content-type');
+                    console.log(`Response from ${service.name}:`, {
+                        status: response.status,
+                        contentType
+                    });
+
                     if (!response.ok) {
                         lastError = `HTTP ${response.status} from ${service.name}`;
                         continue;
@@ -65,42 +71,66 @@ module.exports = async (request, response) => {
 
                     if (service.parseVideo) {
                         const responseText = await response.text();
-                        const videoMatch = responseText.match(/video_url["':]+([^"']+)/i) ||
-                                         responseText.match(/href=["']([^"']+\.mp4)/i) ||
-                                         responseText.match(/source\s+src=["']([^"']+)/i);
+                        let videoUrl;
 
-                        if (videoMatch) {
-                            const videoUrl = videoMatch[1].replace(/&amp;/g, '&');
+                        // Try each pattern until we find a match
+                        for (const pattern of service.extractPatterns) {
+                            const match = responseText.match(pattern);
+                            if (match) {
+                                videoUrl = match[1].replace(/&amp;/g, '&');
+                                break;
+                            }
+                        }
+
+                        if (videoUrl) {
+                            console.log(`Found video URL using ${service.name}`);
                             videoResponse = await fetch(videoUrl, {
                                 headers: {
                                     'Accept': 'video/*, application/octet-stream',
-                                    'User-Agent': service.headers['User-Agent']
+                                    'User-Agent': service.headers['User-Agent'],
+                                    'Range': 'bytes=0-'
                                 },
                                 timeout: config.proxy.timeout
                             });
                         }
                     } else {
-                        const jsonData = await response.json();
-                        const videoUrl = jsonData.url || 
-                                       (jsonData.links && jsonData.links[0]) || 
-                                       (jsonData.data && jsonData.data.url);
+                        try {
+                            const jsonData = await response.json();
+                            const videoUrl = jsonData.url || 
+                                           (jsonData.links && jsonData.links[0]) || 
+                                           (jsonData.data && jsonData.data.url);
 
-                        if (videoUrl) {
-                            videoResponse = await fetch(videoUrl, {
-                                headers: {
-                                    'Accept': 'video/*, application/octet-stream',
-                                    'User-Agent': service.headers['User-Agent']
-                                },
-                                timeout: config.proxy.timeout
-                            });
+                            if (videoUrl) {
+                                console.log(`Found video URL from API ${service.name}`);
+                                videoResponse = await fetch(videoUrl, {
+                                    headers: {
+                                        'Accept': 'video/*, application/octet-stream',
+                                        'User-Agent': service.headers['User-Agent'],
+                                        'Range': 'bytes=0-'
+                                    },
+                                    timeout: config.proxy.timeout
+                                });
+                            }
+                        } catch (jsonError) {
+                            console.log(`JSON parsing failed for ${service.name}:`, jsonError.message);
+                            continue;
                         }
                     }
 
                     if (videoResponse?.ok) {
-                        videoBuffer = await videoResponse.buffer();
-                        if (videoBuffer.length > 100000) {
-                            successfulProxy = service.name;
-                            break;
+                        const videoContentType = videoResponse.headers.get('content-type');
+                        console.log(`Video response content type: ${videoContentType}`);
+
+                        if (videoContentType?.includes('video') || videoContentType?.includes('octet-stream')) {
+                            videoBuffer = await videoResponse.buffer();
+                            if (videoBuffer.length > 100000) {
+                                successfulProxy = service.name;
+                                console.log(`Successfully downloaded video using ${service.name}: ${videoBuffer.length} bytes`);
+                                break;
+                            } else {
+                                console.log(`Video too small from ${service.name}: ${videoBuffer.length} bytes`);
+                                videoBuffer = null;
+                            }
                         }
                     }
                 } catch (error) {
@@ -111,6 +141,7 @@ module.exports = async (request, response) => {
             }
             retryCount++;
             if (!videoBuffer && retryCount < config.proxy.maxRetries) {
+                console.log(`Retry ${retryCount}/${config.proxy.maxRetries}`);
                 await new Promise(resolve => setTimeout(resolve, 2000));
             }
         }
