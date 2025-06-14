@@ -1,7 +1,10 @@
-const fetch = require('node-fetch');
+const express = require('express');
+const axios = require('axios'); // Use axios instead of node-fetch
 
 module.exports = async (request, response) => {
   const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+  const YOUR_INSTAFIX_URL = 'https://my-personal-instafix.onrender.com'; // Your InstaFix service URL
+
   if (!BOT_TOKEN) return response.status(500).send('Bot token not configured');
 
   try {
@@ -18,19 +21,14 @@ module.exports = async (request, response) => {
     if (!match) return response.status(200).send('OK');
 
     const instagramUrl = match[0];
-    
-    // --- THE FINAL STRATEGY: Your bot will get the video link itself ---
+    const fixerUrl = instagramUrl.replace('instagram.com', YOUR_INSTAFIX_URL.replace('https://', ''));
 
-    // 1. Construct the URL to your personal InstaFix service
-    const yourInstaFixDomain = 'https://my-personal-instafix.onrender.com'; // <-- Your InstaFix URL
-    const fixerUrl = instagramUrl.replace('instagram.com', yourInstaFixDomain.replace('https://', ''));
-
-    // 2. Your bot fetches the page from your InstaFix service
+    // 1. Bot fetches the page from your InstaFix service using Axios
     console.log('Fetching from my InstaFix service:', fixerUrl);
-    const fixerResponse = await fetch(fixerUrl);
-    const html = await fixerResponse.text();
+    const fixerResponse = await axios.get(fixerUrl);
+    const html = fixerResponse.data;
 
-    // 3. Your bot extracts the direct video URL from the response
+    // 2. Bot extracts the direct video URL
     const videoUrlMatch = html.match(/property="og:video" content="([^"]+)"/);
     if (!videoUrlMatch || !videoUrlMatch[1]) {
       throw new Error("Could not find a video URL from the InstaFix service.");
@@ -38,26 +36,20 @@ module.exports = async (request, response) => {
     const directVideoUrl = videoUrlMatch[1];
     console.log('Found direct video URL:', directVideoUrl);
 
-    // 4. Your bot sends the DIRECT video link to Telegram
-    await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendVideo`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            chat_id: chatId,
-            video: directVideoUrl,
-            reply_to_message_id: message.message_id
-        })
+    // 3. Bot sends the DIRECT video link to Telegram
+    await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendVideo`, {
+        chat_id: chatId,
+        video: directVideoUrl,
+        reply_to_message_id: message.message_id
     });
     
     response.status(200).send('OK: Processed');
   } catch (error) {
-    console.error('CRITICAL ERROR:', error);
-    // Notify the user in chat that something went wrong
+    console.error('CRITICAL ERROR:', error.message);
     const chatId = request.body.message.chat.id;
-    await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: chatId, text: "Sorry, I couldn't process that video." })
+    await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+      chat_id: chatId,
+      text: "Sorry, an error occurred while processing the video."
     });
     response.status(200).send('OK: Error Handled');
   }
